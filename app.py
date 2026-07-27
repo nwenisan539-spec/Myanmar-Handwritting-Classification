@@ -31,8 +31,8 @@ st.set_page_config(
 # -----------------------------
 # Load Model
 # -----------------------------
-MODEL_PATH = "phase2_model1.keras"
-LABEL_PATH = "label_encoder1.pkl"
+MODEL_PATH = "phase2_model.keras"
+LABEL_PATH = "label_encoder.pkl"
 @st.cache_resource
 def load_resources():
     model = load_model(MODEL_PATH)
