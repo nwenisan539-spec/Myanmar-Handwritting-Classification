@@ -28,9 +28,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# -----------------------------
-# Load Model
-# -----------------------------
 MODEL_PATH = "phase2_model.keras"
 LABEL_PATH = "label_encoder.pkl"
 @st.cache_resource
@@ -41,18 +38,7 @@ def load_resources():
     return model, label_encoder
 model, label_encoder = load_resources()
 
-# ==============================
-# Character Segmentation
-# ==============================
-
-
-
 def segment_characters(bw_img):
-    # bw_img:
-    # background = black
-    # character = white
-    # (THRESH_BINARY_INV output)
-
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(bw_img,connectivity=8)
     boxes = []
     # Skip background label 0
@@ -61,7 +47,7 @@ def segment_characters(bw_img):
         # remove small noise
         if area > 80:
             boxes.append((x, y, w, h))
-    # left to right sorting
+    
     boxes = sorted(boxes,key=lambda b: (b[1]//50, b[0]))
     chars = []
     for x, y, w, h in boxes:
@@ -75,8 +61,6 @@ def segment_characters(bw_img):
         # create white background
         size = max(h2, w2) + 70
         canvas = np.ones((size, size),dtype=np.uint8) * 255
-        # IMPORTANT:
-        # training image = white background + black character
         crop = 255 - crop
         sx = (size-w2)//2
         sy = (size-h2)//2
@@ -84,33 +68,6 @@ def segment_characters(bw_img):
             sy:sy+h2,
             sx:sx+w2
         ] = crop
-        chars.append(canvas)
-    return chars
-
-
-#def segment_characters(bw_img):
-    #bw_img = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,51,20)
-    contours, _ = cv2.findContours(bw_img,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-    boxes = []
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if w*h > 80:
-            boxes.append((x,y,w,h))
-    boxes = sorted(boxes, key=lambda b:(b[1]//40,b[0]))
-    chars = []
-    for (x,y,w,h) in boxes:
-        pad = 12
-        x1=max(0,x-pad)
-        y1=max(0,y-pad)
-        x2=min(bw_img.shape[1],x+w+pad)
-        y2=min(bw_img.shape[0],y+h+pad)
-        crop = bw_img[y1:y2,x1:x2]
-        h2,w2=crop.shape
-        size=max(h2,w2)+24
-        canvas=np.ones((size,size),dtype=np.uint8)*255
-        sx=(size-w2)//2
-        sy=(size-h2)//2
-        canvas[sy:sy+h2,sx:sx+w2]=255-crop
         chars.append(canvas)
     return chars
 
@@ -132,13 +89,10 @@ def predict_character(char_img):
     confidence = prediction[0][index]
     return label, confidence
 
-# Session State
 if "prediction_text" not in st.session_state:
     st.session_state.prediction_text = ""
 if "canvas_key" not in st.session_state:
     st.session_state.canvas_key = 0
-
-# CSS.main{background:#f5f5f5;}.stApp {background: linear-gradient(to bottom, #FFF8E7, #F5F5DC);}
 
 st.markdown("""
 <style>
@@ -178,9 +132,6 @@ div[data-testid="stMarkdownContainer"] p{color:#000000 !important;}
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# Title
-# -----------------------------
 st.markdown("<div class='title'>Myanmar Handwriting OCR</div>",unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>Draw multiple Myanmar characters and recognize them.</div>",unsafe_allow_html=True)
 #st.divider()
@@ -195,8 +146,6 @@ canvas_result = st_canvas(
     drawing_mode="freedraw",
     key=f"canvas_{st.session_state.canvas_key}",
 )
-# Buttons
-# -----------------------------
 col1, col2, col3, col4 = st.columns([1,1,1,5])
 with col1:
     predict_btn = st.button("Predict")
@@ -211,7 +160,6 @@ with col3:
         st.session_state.prediction_text = ""
         st.rerun()
 
-# Prediction Result
 if predict_btn:
     if canvas_result.image_data is None:
         st.warning("Please draw a Myanmar character first.")
@@ -224,9 +172,7 @@ if predict_btn:
         bw = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,51,20)
         print(bw.shape)
         kernel = np.ones((3,3), np.uint8)
-        # ======================
-        # Segment characters
-        # ======================
+        
         characters = segment_characters(bw)
         st.write("Detected characters:", len(characters))
         if len(characters)==0:
@@ -234,7 +180,7 @@ if predict_btn:
             st.stop()
         result=""
         confidence=[]
-        # Predict each character
+        
         for i, char in enumerate(characters):
             mapping = {
                 "r0_c0":"က","r0_c1":"ခ","r0_c2":"ဂ","r0_c3":"ဃ","r0_c4":"င",
@@ -246,7 +192,6 @@ if predict_btn:
                 "r6_c1":"ဟ","r6_c2":"ဠ","r6_c3":"အ"
             }
 
-            #st.image(char, width=120)
             st.image(char, caption=f"Character {i+1}", width=100)
             cv2.imwrite(f"debug_{i}.png", char)
             preprocess_img = preprocess_character(char)
@@ -267,10 +212,10 @@ if predict_btn:
                 """,
                 unsafe_allow_html=True
             )
-            #st.write(pred)
+            
             result += mapping.get(pred,pred)
             confidence.append(conf)
-        # append like keyboard
+        
         st.session_state.prediction_text += result
         st.markdown(
             f"""
@@ -280,9 +225,6 @@ if predict_btn:
             """,
             unsafe_allow_html=True
         )
-        # Auto clear drawing board after prediction
-        #st.session_state.canvas_key += 1
-        #st.rerun()
 st.subheader("Prediction Cursor")
 st.text_input(
     "Prediction",
