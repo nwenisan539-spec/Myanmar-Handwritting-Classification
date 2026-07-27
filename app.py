@@ -20,7 +20,6 @@ from pathlib import Path
 from PIL import Image
 import warnings
 warnings.filterwarnings("ignore")
-# Page Config
 
 st.set_page_config(
     page_title="Myanmar Handwriting OCR",
