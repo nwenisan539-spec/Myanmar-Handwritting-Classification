@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")
 st.set_page_config(
     page_title="Myanmar Handwriting OCR",
     page_icon="✍",
-    layout="centered"
+    layout="wide"
 )
 
 MODEL_PATH = "phase2_model.keras"
@@ -40,13 +40,10 @@ model, label_encoder = load_resources()
 def segment_characters(bw_img):
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(bw_img,connectivity=8)
     boxes = []
-    # Skip background label 0
     for i in range(1, num_labels):
         x, y, w, h, area = stats[i]
-        # remove small noise
         if area > 80:
             boxes.append((x, y, w, h))
-    
     boxes = sorted(boxes,key=lambda b: (b[1]//50, b[0]))
     chars = []
     for x, y, w, h in boxes:
@@ -57,7 +54,7 @@ def segment_characters(bw_img):
         y2 = min(bw_img.shape[0],y+h+pad)
         crop = bw_img[y1:y2, x1:x2]
         h2, w2 = crop.shape
-        # create white background
+        
         size = max(h2, w2) + 70
         canvas = np.ones((size, size),dtype=np.uint8) * 255
         crop = 255 - crop
@@ -92,6 +89,8 @@ if "prediction_text" not in st.session_state:
     st.session_state.prediction_text = ""
 if "canvas_key" not in st.session_state:
     st.session_state.canvas_key = 0
+#if "mean_confidence" not in st.session_state:
+    st.session_state.mean_confidence = None
 
 st.markdown("""
 <style>
@@ -107,57 +106,103 @@ p, label, span, div{color:black;}
 .result-box{background:white;border:3px solid #2196F3;border-radius:15px;padding:25px;font-size:45px;font-weight:bold;text-align:center;
 /* min-height:100px; */
 }
-            
+
 /* ---------------- Prediction Cursor ---------------- */
-.stTextInput input{color:black !important;font-size:22px;font-weight:bold;border:2px solid #00897B !important;border-radius:10px;}
+.stTextArea textarea{
+    background:#FFFDE7 !important;
+    color:#000000 !important;
+    border:2px solid #43A047 !important;
+    border-radius:10px !important;
+    font-size:24px !important;
+    font-weight:bold !important;
+}
+
+.stTextArea textarea:focus{
+    border:2px solid #00897B !important;
+    box-shadow:0 0 8px rgba(0,137,123,.3);
+}           
+
 div[data-testid="stMarkdownContainer"] p{color:#000000 !important;}         
-.stTextInput input{color:black !important;font-size:22px;font-weight:bold;border:2px solid #00897B !important;border-radius:10px;}
 
 .stButton > button{
     background:#43A047;
     color:#558804FF;
 }   
-.stTextInput > div > div > input{
-    background-color: #FFFDE7 !important;   
-    color: #000000 !important;              
-    border: 2px solid #43A047 !important;   
-    border-radius: 10px;
-    font-size: 22px;
-    font-weight: bold;
-    text-align: center;
-}
-.stTextInput > div > div > input:focus{border: 2px solid #00897B !important;box-shadow: 0 0 8px rgba(0,137,123,0.3);}
-    
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='title'>Myanmar Handwriting OCR</div>",unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>Draw multiple Myanmar characters and recognize them.</div>",unsafe_allow_html=True)
-#st.divider()
-st.subheader("White Drawing Board")
-canvas_result = st_canvas(
-    fill_color="rgba(255,255,255,1)",
-    stroke_width=7,
-    stroke_color="#030500FF",
-    background_color="#FEFFFFFF",
-    width=900,
-    height=400,
-    drawing_mode="freedraw",
-    key=f"canvas_{st.session_state.canvas_key}",
-)
+
+# ---------------- Whiteboard + Prediction Cursor ----------------
+left_col, right_col = st.columns([3, 1])  
+
+with left_col:
+    st.subheader("White Drawing Board")
+
+    canvas_result = st_canvas(
+        fill_color="rgba(255,255,255,1)",
+        stroke_width=7,
+        stroke_color="#030500FF",
+        background_color="#FFFFFFFF",
+        width=900,
+        height=400,
+        drawing_mode="freedraw",
+        key=f"canvas_{st.session_state.canvas_key}",
+    )
+
+with right_col:
+    st.subheader("Prediction Cursor")
+
+    cursor = st.empty()
+
+    cursor.markdown(
+        f"""
+        <div style="
+            height:400px;
+            border:2px solid #43A047;
+            border-radius:10px;
+            background:#FFFDE7;
+            padding:12px;
+            font-size:28px;
+            color:black;
+            overflow-y:auto;
+            white-space:pre-wrap;
+        ">
+        {st.session_state.prediction_text}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
 col1, col2, col3, col4 = st.columns([1,1,1,5])
 with col1:
     predict_btn = st.button("Predict")
-
 with col2:
     if st.button("Clear Board"):
         st.session_state.canvas_key += 1
         st.rerun()
-
 with col3:
     if st.button("Clear Text"):
         st.session_state.prediction_text = ""
         st.rerun()
+
+if st.session_state.mean_confidence is not None:
+    st.markdown(
+        f"""
+        <div style="
+        background:#E8F5E9;
+        border-left:5px solid #43A047;
+        padding:12px;
+        border-radius:10px;
+        color:black;
+        font-size:20px;
+        font-weight:bold;">
+            Mean Confidence : {st.session_state.mean_confidence:.2%}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 if predict_btn:
     if canvas_result.image_data is None:
@@ -167,11 +212,10 @@ if predict_btn:
         print(canvas_result.image_data.shape)
         img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        #img = cv2.GaussianBlur(gray, (5,5), 0)
         bw = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY_INV,51,20)
         print(bw.shape)
         kernel = np.ones((3,3), np.uint8)
-        
+       
         characters = segment_characters(bw)
         st.write("Detected characters:", len(characters))
         if len(characters)==0:
@@ -190,19 +234,23 @@ if predict_btn:
                 "r5_c0":"ယ","r5_c1":"ရ","r5_c2":"လ","r5_c3":"ဝ","r5_c4":"သ",
                 "r6_c1":"ဟ","r6_c2":"ဠ","r6_c3":"အ"
             }
-
             st.image(char, caption=f"Character {i+1}", width=100)
             cv2.imwrite(f"debug_{i}.png", char)
             preprocess_img = preprocess_character(char)
             print(preprocess_img.size)
             print(preprocess_img.shape)
-            pred, conf = predict_character(preprocess_img)
-            
+            pred, conf = predict_character(preprocess_img)  
             st.markdown(
                 f"""
-                <div style="background:white;padding:12px;border-radius:10px;border-left:5px solid #43A047;margin-bottom:10px;">
+                <div style="
+                    background:white;
+                    padding:12px;
+                    border-radius:10px;
+                    border-left:5px solid #43A047;
+                    margin-bottom:10px;
+                ">
                     <span style="font-size:20px;color:black;">
-                    <b>Prediction:</b> {mapping.get(pred)}
+                        <b>Prediction:</b> {mapping.get(pred, pred)}
                     </span><br>
                     <span style="font-size:18px;color:black;">
                         <b>Confidence:</b> {conf:.2%}
@@ -210,24 +258,29 @@ if predict_btn:
                 </div>
                 """,
                 unsafe_allow_html=True
-            )
-            
+            )        
             result += mapping.get(pred,pred)
             confidence.append(conf)
-        
-        st.session_state.prediction_text += result
-        st.markdown(
+
+        st.session_state.prediction_text += result  
+        cursor.markdown(
             f"""
-            <div style="background:#E8F5E9;border-left:5px solid #43A047;padding:12px;border-radius:10px;color:black;font-size:20px;font-weight:bold;">
-                Mean Confidence : {np.mean(confidence):.2%}
+            <div style="
+                height:400px;
+                border:2px solid #43A047;
+                border-radius:10px;
+                background:#FFFDE7;
+                padding:12px;
+                font-size:28px;
+                color:black;
+                overflow-y:auto;
+                white-space:pre-wrap;
+            ">
+            {st.session_state.prediction_text}
             </div>
             """,
             unsafe_allow_html=True
-        )
-st.subheader("Prediction Cursor")
-st.text_input(
-    "Prediction",
-    value=st.session_state.prediction_text,
-    key="cursor_box",
-    label_visibility="collapsed"
-)
+        )            
+        print(st.session_state.prediction_text)
+        #st.session_state.mean_confidence = np.mean(confidence)
+        #st.rerun()
